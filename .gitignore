@@ -32,7 +32,10 @@ go.work.sum
 .vscode/
 
 # Built binary
-jot
+/jot
 
 # Database
 *.db
+
+# Claude Code
+.claude/

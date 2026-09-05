@@ -14,6 +14,7 @@ linters:
     - errorlint
     - bodyclose
     - nilerr
+    - revive
 
 issues:
   max-issues-per-linter: 0
