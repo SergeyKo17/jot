@@ -5,19 +5,20 @@ CREATE TABLE IF NOT EXISTS memories (
   project       TEXT NOT NULL DEFAULT '',
   tags          TEXT NOT NULL DEFAULT '[]',
   source        TEXT NOT NULL DEFAULT '',
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL,
-  expires_at    TEXT    
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at    TEXT
 );
 
--- таблица fts5 индекса
+-- FTS5 full-text search index
 CREATE VIRTUAL TABLE memories_fts USING fts5(
     text,
     content=memories,
     content_rowid=rowid
 );
 
--- заполнение memories_fts таблицы
+-- Triggers to sync FTS5 index with memories table
+-- +goose StatementBegin
 CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
     INSERT INTO memories_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
@@ -32,6 +33,7 @@ CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
         VALUES('delete', old.rowid, old.text);
     INSERT INTO memories_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
+-- +goose StatementEnd
 
 CREATE INDEX idx_memories_project ON memories(project);
 CREATE INDEX idx_memories_expires ON memories(expires_at)

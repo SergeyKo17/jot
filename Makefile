@@ -3,6 +3,9 @@
 build:
 	go build ./cmd/jot/
 
+fmt:
+	gofumpt -w .
+
 create-migration:
 	@if [ -z "$(NAME)" ]; then \
 		echo "Error: specify the migration name"; \
@@ -18,7 +21,7 @@ create-migration:
 	echo "Migration created: $$FILENAME"
 
 lint:
-	golangci-lint run
+	golangci-lint run ./...
 
 test:
 	go test ./...
