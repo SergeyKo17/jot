@@ -66,3 +66,34 @@ func toolError(msg string) *mcp.CallToolResult {
 		},
 	}
 }
+
+// RecallInput is the input for the recall tool.
+type RecallInput struct {
+	Text    string `json:"text" jsonschema:"Search query for finding memories"`
+	Project string `json:"project,omitempty" jsonschema:"Filter by project scope"`
+	Tag     string `json:"tag,omitempty" jsonschema:"Filter by tag"`
+}
+
+// RecallOutput is the result of searching memories.
+type RecallOutput struct {
+	Memories []store.MemoryRow `json:"memories"`
+}
+
+// HandleRecall searches memories by text with optional filters.
+func (t *Tools) HandleRecall(ctx context.Context, _ *mcp.CallToolRequest, input RecallInput) (*mcp.CallToolResult, RecallOutput, error) {
+	if input.Text == "" {
+		return toolError("text is required"), RecallOutput{}, nil
+	}
+
+	rows, err := t.store.Search(ctx, store.SearchParams{
+		Text:    input.Text,
+		Project: input.Project,
+		Tag:     input.Tag,
+	})
+	if err != nil {
+		t.log.Error("search memories", "err", err)
+		return toolError("internal error: could not search memories"), RecallOutput{}, nil
+	}
+
+	return nil, RecallOutput{Memories: rows}, nil
+}
