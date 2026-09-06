@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -51,6 +52,9 @@ func TestNew(t *testing.T) {
 func TestSave(t *testing.T) {
 	s := testStore(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	tests := []struct {
 		name    string
 		mem     Memory
@@ -65,7 +69,7 @@ func TestSave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			id, err := s.Save(context.Background(), tt.mem)
+			id, err := s.Save(ctx, tt.mem)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Save() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -77,11 +81,11 @@ func TestSave(t *testing.T) {
 	}
 
 	t.Run("incrementing ids", func(t *testing.T) {
-		id1, err := s.Save(context.Background(), Memory{Text: "first"})
+		id1, err := s.Save(ctx, Memory{Text: "first"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		id2, err := s.Save(context.Background(), Memory{Text: "second"})
+		id2, err := s.Save(ctx, Memory{Text: "second"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,4 +93,120 @@ func TestSave(t *testing.T) {
 			t.Errorf("Save() ids not incrementing: id1=%d, id2=%d", id1, id2)
 		}
 	})
+}
+
+func TestSearch(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	seeds := []Memory{
+		{Text: "Go uses gofmt for formatting", Project: "backend", Tags: []string{"tooling"}},
+		{Text: "gofmt runs on save in IDE", Project: "frontend", Tags: []string{"workflow"}},
+		{Text: "PostgreSQL preferred over MySQL", Project: "backend", Tags: []string{"database"}},
+		{Text: "PostgreSQL supports JSONB", Project: "backend", Tags: []string{"database"}},
+	}
+	for _, m := range seeds {
+		if _, err := s.Save(ctx, m); err != nil {
+			t.Fatalf("seed Save(%q): %v", m.Text, err)
+		}
+	}
+
+	tests := []struct {
+		name     string
+		input    SearchParams
+		wantRows []MemoryRow
+		wantErr  error
+	}{
+		{
+			name:  "text only",
+			input: SearchParams{Text: "gofmt"},
+			wantRows: []MemoryRow{
+				{Text: "Go uses gofmt for formatting", Project: "backend"},
+				{Text: "gofmt runs on save in IDE", Project: "frontend"},
+			},
+		},
+		{
+			name:  "with project",
+			input: SearchParams{Text: "gofmt", Project: "backend"},
+			wantRows: []MemoryRow{
+				{Text: "Go uses gofmt for formatting", Project: "backend"},
+			},
+		},
+		{
+			name:  "with tag",
+			input: SearchParams{Text: "gofmt", Tag: "tooling"},
+			wantRows: []MemoryRow{
+				{Text: "Go uses gofmt for formatting", Project: "backend"},
+			},
+		},
+		{
+			name:  "project and tag",
+			input: SearchParams{Text: "PostgreSQL", Project: "backend", Tag: "database"},
+			wantRows: []MemoryRow{
+				{Text: "PostgreSQL supports JSONB", Project: "backend"},
+				{Text: "PostgreSQL preferred over MySQL", Project: "backend"},
+			},
+		},
+		{
+			name:     "no results",
+			input:    SearchParams{Text: "Python"},
+			wantRows: nil,
+		},
+		{
+			name:     "project no match",
+			input:    SearchParams{Text: "gofmt", Project: "mobile"},
+			wantRows: nil,
+		},
+		{
+			name:    "empty text",
+			input:   SearchParams{Text: ""},
+			wantErr: ErrEmptyQuery,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := s.Search(ctx, tt.input)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Search() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if len(result) != len(tt.wantRows) {
+				t.Fatalf("Search() got %d rows, want %d", len(result), len(tt.wantRows))
+			}
+
+			for i := range result {
+				if result[i].Text != tt.wantRows[i].Text {
+					t.Errorf("row[%d].Text = %q, want %q", i, result[i].Text, tt.wantRows[i].Text)
+				}
+				if result[i].Project != tt.wantRows[i].Project {
+					t.Errorf("row[%d].Project = %q, want %q", i, result[i].Project, tt.wantRows[i].Project)
+				}
+			}
+		})
+	}
+}
+
+func TestSearchLimit(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := range 15 {
+		_, err := s.Save(ctx, Memory{Text: fmt.Sprintf("fact number %d about Go", i)})
+		if err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	result, err := s.Search(ctx, SearchParams{Text: "Go"})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(result) != 10 {
+		t.Errorf("Search() got %d rows, want 10", len(result))
+	}
 }

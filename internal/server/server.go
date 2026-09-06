@@ -24,6 +24,10 @@ func New(_ *slog.Logger, tools *tools.Tools) *Server {
 		Name:        "remember",
 		Description: "Store a factual statement in long-term memory. Call this when the user shares a decision, preference, architectural choice, or any fact worth remembering across sessions. One fact per call.",
 	}, tools.HandleRemember)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "recall",
+		Description: "Search memories by text. Optionally filter by project or tag. Returns up to 10 most relevant facts.",
+	}, tools.HandleRecall)
 
 	return &Server{mcp: srv}
 }

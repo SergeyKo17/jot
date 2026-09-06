@@ -13,6 +13,9 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+// ErrEmptyQuery is returned when search text is empty.
+var ErrEmptyQuery = errors.New("search: text is required")
+
 // Store manages SQLite database connections and queries.
 type Store struct {
 	db     *sql.DB
@@ -73,9 +76,9 @@ type Memory struct {
 }
 
 const saveQuery = `
-INSERT INTO memories (text, project, tags, source)
-VALUES (?, ?, ?, ?)
-RETURNING id`
+	INSERT INTO memories (text, project, tags, source)
+	VALUES (?, ?, ?, ?)
+	RETURNING id`
 
 // Save inserts a new memory and returns its ID.
 func (s *Store) Save(ctx context.Context, mem Memory) (int64, error) {
@@ -98,4 +101,73 @@ func (s *Store) Save(ctx context.Context, mem Memory) (int64, error) {
 	}
 
 	return id, nil
+}
+
+// SearchParams holds search parameters for querying memories.
+type SearchParams struct {
+	Text    string
+	Project string
+	Tag     string
+}
+
+// MemoryRow represents a single search result.
+type MemoryRow struct {
+	ID        int64  `json:"id"`
+	Text      string `json:"text"`
+	Project   string `json:"project,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// Search queries memories by text match with optional project and tag filters.
+func (s *Store) Search(ctx context.Context, params SearchParams) (_ []MemoryRow, err error) {
+	if params.Text == "" {
+		return nil, ErrEmptyQuery
+	}
+
+	query, args := createRecallQuery(params)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search memories: %w", err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+
+	var result []MemoryRow
+	for rows.Next() {
+		var r MemoryRow
+		if err := rows.Scan(&r.ID, &r.Text, &r.Project, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("search scan: %w", err)
+		}
+		result = append(result, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("search rows: %w", err)
+	}
+
+	return result, nil
+}
+
+// createRecallQuery builds a FTS5 search query with optional WHERE clauses for project and tag.
+func createRecallQuery(params SearchParams) (string, []any) {
+	query := `SELECT m.id, m.text, m.project, m.created_at
+	FROM memories_fts f
+	JOIN memories m ON m.rowid = f.rowid
+	WHERE f.text MATCH ?`
+	args := []any{params.Text}
+
+	if params.Project != "" {
+		query += " AND m.project = ?"
+		args = append(args, params.Project)
+	}
+
+	if params.Tag != "" {
+		query += ` AND m.id IN 
+		(SELECT mm.id FROM memories mm, JSON_EACH(mm.tags) 
+			WHERE JSON_EACH.value = ?)`
+		args = append(args, params.Tag)
+	}
+
+	query += " ORDER BY f.rank LIMIT 10"
+
+	return query, args
 }
