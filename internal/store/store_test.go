@@ -210,3 +210,79 @@ func TestSearchLimit(t *testing.T) {
 		t.Errorf("Search() got %d rows, want 10", len(result))
 	}
 }
+
+func TestDelete(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	t.Run("existing", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "to be deleted"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Delete(ctx, id); err != nil {
+			t.Fatalf("Delete(%d) = %v", id, err)
+		}
+		rows, err := s.Search(ctx, SearchParams{Text: "deleted"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 0 {
+			t.Errorf("Search after delete got %d rows, want 0", len(rows))
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		err := s.Delete(ctx, 999)
+		if !errors.Is(err, ErrMemoryNotFound) {
+			t.Errorf("Delete(999) = %v, want ErrMemoryNotFound", err)
+		}
+	})
+
+	t.Run("zero id", func(t *testing.T) {
+		err := s.Delete(ctx, 0)
+		if !errors.Is(err, ErrDeleteEmptyID) {
+			t.Errorf("Delete(0) = %v, want ErrDeleteEmptyID", err)
+		}
+	})
+
+	t.Run("double delete", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "double delete test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Delete(ctx, id); err != nil {
+			t.Fatalf("first Delete(%d) = %v", id, err)
+		}
+		err = s.Delete(ctx, id)
+		if !errors.Is(err, ErrMemoryNotFound) {
+			t.Errorf("second Delete(%d) = %v, want ErrMemoryNotFound", id, err)
+		}
+	})
+
+	t.Run("delete preserves others", func(t *testing.T) {
+		id1, err := s.Save(ctx, Memory{Text: "keep this memory"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id2, err := s.Save(ctx, Memory{Text: "remove this memory"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Delete(ctx, id2); err != nil {
+			t.Fatalf("Delete(%d) = %v", id2, err)
+		}
+		rows, err := s.Search(ctx, SearchParams{Text: "memory"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("Search got %d rows, want 1", len(rows))
+		}
+		if rows[0].ID != id1 {
+			t.Errorf("remaining row ID = %d, want %d", rows[0].ID, id1)
+		}
+	})
+}

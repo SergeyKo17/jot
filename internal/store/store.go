@@ -16,6 +16,12 @@ import (
 // ErrEmptyQuery is returned when search text is empty.
 var ErrEmptyQuery = errors.New("search: text is required")
 
+// ErrDeleteEmptyID is returned when delete id is empty.
+var ErrDeleteEmptyID = errors.New("delete: id is required")
+
+// ErrMemoryNotFound is returned when memory doesn't exist.
+var ErrMemoryNotFound = errors.New("memory not found")
+
 // Store manages SQLite database connections and queries.
 type Store struct {
 	db     *sql.DB
@@ -170,4 +176,28 @@ func createRecallQuery(params SearchParams) (string, []any) {
 	query += " ORDER BY f.rank LIMIT 10"
 
 	return query, args
+}
+
+const deleteQuery = `
+DELETE FROM memories
+WHERE id = ?`
+
+// Delete removes a memory by ID.
+func (s *Store) Delete(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return ErrDeleteEmptyID
+	}
+	result, err := s.db.ExecContext(ctx, deleteQuery, id)
+	if err != nil {
+		return fmt.Errorf("delete memory: %w", err)
+	}
+
+	countMems, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete rows affected: %w", err)
+	}
+	if countMems == 0 {
+		return ErrMemoryNotFound
+	}
+	return nil
 }

@@ -28,6 +28,10 @@ func New(_ *slog.Logger, tools *tools.Tools) *Server {
 		Name:        "recall",
 		Description: "Search memories by text. Optionally filter by project or tag. Returns up to 10 most relevant facts.",
 	}, tools.HandleRecall)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "forget",
+		Description: "Delete a memory by ID. Use when a fact is outdated, wrong, or no longer relevant.",
+	}, tools.HandleForget)
 
 	return &Server{mcp: srv}
 }
