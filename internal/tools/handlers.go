@@ -3,6 +3,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/SergeyKo17/jot/internal/store"
@@ -96,4 +97,33 @@ func (t *Tools) HandleRecall(ctx context.Context, _ *mcp.CallToolRequest, input 
 	}
 
 	return nil, RecallOutput{Memories: rows}, nil
+}
+
+// ForgetInput is the input for the forget tool.
+type ForgetInput struct {
+	ID int64 `json:"id" jsonschema:"ID of the memory to delete"`
+}
+
+// ForgetOutput is the result of deleting a memory.
+type ForgetOutput struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+}
+
+// HandleForget deletes a memory by ID.
+func (t *Tools) HandleForget(ctx context.Context, _ *mcp.CallToolRequest, input ForgetInput) (*mcp.CallToolResult, ForgetOutput, error) {
+	if input.ID <= 0 {
+		return toolError("id is required"), ForgetOutput{}, nil
+	}
+
+	err := t.store.Delete(ctx, input.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrMemoryNotFound) {
+			return toolError("memory not found"), ForgetOutput{}, nil
+		}
+		t.log.Error("delete memory", "err", err)
+		return toolError("internal error: could not delete memory"), ForgetOutput{}, nil
+	}
+
+	return nil, ForgetOutput{ID: input.ID, Status: "deleted"}, nil
 }
