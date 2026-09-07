@@ -127,3 +127,46 @@ func (t *Tools) HandleForget(ctx context.Context, _ *mcp.CallToolRequest, input 
 
 	return nil, ForgetOutput{ID: input.ID, Status: "deleted"}, nil
 }
+
+// UpdateInput is the input for the update tool.
+type UpdateInput struct {
+	ID      int64     `json:"id" jsonschema:"ID of the memory to update"`
+	Text    *string   `json:"text,omitempty" jsonschema:"New text for the memory"`
+	Project *string   `json:"project,omitempty" jsonschema:"New project scope"`
+	Tags    *[]string `json:"tags,omitempty" jsonschema:"New tags list"`
+}
+
+// UpdateOutput is the result of updating a memory.
+type UpdateOutput struct {
+	Memory store.MemoryRow `json:"memory"`
+	Status string          `json:"status"`
+}
+
+// HandleUpdate updates an existing memory's fields by ID.
+func (t *Tools) HandleUpdate(ctx context.Context, _ *mcp.CallToolRequest, input UpdateInput) (*mcp.CallToolResult, UpdateOutput, error) {
+	if input.ID <= 0 {
+		return toolError("id is required"), UpdateOutput{}, nil
+	}
+
+	row, err := t.store.Update(ctx, store.UpdateParams{
+		ID:      input.ID,
+		Text:    input.Text,
+		Project: input.Project,
+		Tags:    input.Tags,
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrMemoryNotFound) {
+			return toolError("memory not found"), UpdateOutput{}, nil
+		}
+		if errors.Is(err, store.ErrNoFieldsToUpdate) {
+			return toolError("at least one field is required"), UpdateOutput{}, nil
+		}
+		if errors.Is(err, store.ErrEmptyText) {
+			return toolError("text cannot be empty"), UpdateOutput{}, nil
+		}
+		t.log.Error("update memory", "err", err)
+		return toolError("internal error: could not update memory"), UpdateOutput{}, nil
+	}
+
+	return nil, UpdateOutput{Memory: row, Status: "updated"}, nil
+}

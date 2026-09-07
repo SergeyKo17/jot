@@ -243,7 +243,7 @@ func TestDelete(t *testing.T) {
 
 	t.Run("zero id", func(t *testing.T) {
 		err := s.Delete(ctx, 0)
-		if !errors.Is(err, ErrDeleteEmptyID) {
+		if !errors.Is(err, ErrInvalidID) {
 			t.Errorf("Delete(0) = %v, want ErrDeleteEmptyID", err)
 		}
 	})
@@ -283,6 +283,139 @@ func TestDelete(t *testing.T) {
 		}
 		if rows[0].ID != id1 {
 			t.Errorf("remaining row ID = %d, want %d", rows[0].ID, id1)
+		}
+	})
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestUpdate(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	t.Run("update text", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "old text", Project: "backend"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, err := s.Update(ctx, UpdateParams{ID: id, Text: ptr("new text")})
+		if err != nil {
+			t.Fatalf("Update() = %v", err)
+		}
+		if row.Text != "new text" {
+			t.Errorf("Text = %q, want %q", row.Text, "new text")
+		}
+		if row.Project != "backend" {
+			t.Errorf("Project = %q, want %q", row.Project, "backend")
+		}
+	})
+
+	t.Run("update project", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "keep this", Project: "old"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, err := s.Update(ctx, UpdateParams{ID: id, Project: ptr("new")})
+		if err != nil {
+			t.Fatalf("Update() = %v", err)
+		}
+		if row.Project != "new" {
+			t.Errorf("Project = %q, want %q", row.Project, "new")
+		}
+		if row.Text != "keep this" {
+			t.Errorf("Text = %q, want %q", row.Text, "keep this")
+		}
+	})
+
+	t.Run("update tags", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "tagged fact", Tags: []string{"old-tag"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Update(ctx, UpdateParams{ID: id, Tags: ptr([]string{"new-tag"})})
+		if err != nil {
+			t.Fatalf("Update() = %v", err)
+		}
+		rows, err := s.Search(ctx, SearchParams{Text: "tagged", Tag: "new-tag"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Errorf("Search by new tag got %d rows, want 1", len(rows))
+		}
+		rows, err = s.Search(ctx, SearchParams{Text: "tagged", Tag: "old-tag"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 0 {
+			t.Errorf("Search by old tag got %d rows, want 0", len(rows))
+		}
+	})
+
+	t.Run("update all fields", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "original", Project: "old", Tags: []string{"v1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, err := s.Update(ctx, UpdateParams{
+			ID:      id,
+			Text:    ptr("updated"),
+			Project: ptr("new"),
+			Tags:    ptr([]string{"v2"}),
+		})
+		if err != nil {
+			t.Fatalf("Update() = %v", err)
+		}
+		if row.Text != "updated" {
+			t.Errorf("Text = %q, want %q", row.Text, "updated")
+		}
+		if row.Project != "new" {
+			t.Errorf("Project = %q, want %q", row.Project, "new")
+		}
+		rows, err := s.Search(ctx, SearchParams{Text: "updated", Tag: "v2"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Errorf("Search by new tag got %d rows, want 1", len(rows))
+		}
+	})
+
+	t.Run("empty text", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "will not clear"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Update(ctx, UpdateParams{ID: id, Text: ptr("")})
+		if !errors.Is(err, ErrEmptyText) {
+			t.Errorf("Update() = %v, want ErrEmptyText", err)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := s.Update(ctx, UpdateParams{ID: 999, Text: ptr("x")})
+		if !errors.Is(err, ErrMemoryNotFound) {
+			t.Errorf("Update(999) = %v, want ErrMemoryNotFound", err)
+		}
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		_, err := s.Update(ctx, UpdateParams{ID: 0, Text: ptr("x")})
+		if !errors.Is(err, ErrInvalidID) {
+			t.Errorf("Update(0) = %v, want ErrInvalidID", err)
+		}
+	})
+
+	t.Run("no fields", func(t *testing.T) {
+		id, err := s.Save(ctx, Memory{Text: "no change"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Update(ctx, UpdateParams{ID: id})
+		if !errors.Is(err, ErrNoFieldsToUpdate) {
+			t.Errorf("Update() = %v, want ErrNoFieldsToUpdate", err)
 		}
 	})
 }
