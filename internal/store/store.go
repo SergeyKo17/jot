@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/SergeyKo17/jot/migrations"
 	"github.com/pressly/goose/v3"
@@ -16,11 +17,17 @@ import (
 // ErrEmptyQuery is returned when search text is empty.
 var ErrEmptyQuery = errors.New("search: text is required")
 
-// ErrDeleteEmptyID is returned when delete id is empty.
-var ErrDeleteEmptyID = errors.New("delete: id is required")
+// ErrInvalidID is returned when memory ID is zero or negative.
+var ErrInvalidID = errors.New("invalid memory ID")
 
 // ErrMemoryNotFound is returned when memory doesn't exist.
 var ErrMemoryNotFound = errors.New("memory not found")
+
+// ErrNoFieldsToUpdate is returned when no fields are provided for update.
+var ErrNoFieldsToUpdate = errors.New("update: no fields to update")
+
+// ErrEmptyText is returned when text is set to empty string.
+var ErrEmptyText = errors.New("text cannot be empty")
 
 // Store manages SQLite database connections and queries.
 type Store struct {
@@ -185,7 +192,7 @@ WHERE id = ?`
 // Delete removes a memory by ID.
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	if id <= 0 {
-		return ErrDeleteEmptyID
+		return ErrInvalidID
 	}
 	result, err := s.db.ExecContext(ctx, deleteQuery, id)
 	if err != nil {
@@ -200,4 +207,72 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 		return ErrMemoryNotFound
 	}
 	return nil
+}
+
+// UpdateParams holds fields to update. Nil means don't touch.
+type UpdateParams struct {
+	ID      int64
+	Text    *string
+	Project *string
+	Tags    *[]string
+}
+
+// Update modifies an existing memory's fields by ID.
+func (s *Store) Update(ctx context.Context, params UpdateParams) (MemoryRow, error) {
+	if params.ID <= 0 {
+		return MemoryRow{}, ErrInvalidID
+	}
+
+	query, args, err := createUpdateQuery(params)
+	if err != nil {
+		return MemoryRow{}, err
+	}
+
+	var r MemoryRow
+	err = s.db.QueryRowContext(ctx, query, args...).Scan(&r.ID, &r.Text, &r.Project, &r.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MemoryRow{}, ErrMemoryNotFound
+	}
+	if err != nil {
+		return MemoryRow{}, fmt.Errorf("update memory: %w", err)
+	}
+
+	return r, nil
+}
+
+// createUpdateQuery builds a dynamic UPDATE query from non-nil fields.
+func createUpdateQuery(params UpdateParams) (string, []any, error) {
+	sets := make([]string, 0, 3)
+	args := make([]any, 0, 4)
+
+	if params.Text != nil && *params.Text == "" {
+		return "", nil, ErrEmptyText
+	}
+
+	if params.Text != nil {
+		sets = append(sets, "text = ?")
+		args = append(args, *params.Text)
+	}
+	if params.Project != nil {
+		sets = append(sets, "project = ?")
+		args = append(args, *params.Project)
+	}
+	if params.Tags != nil {
+		tagsJSON, err := json.Marshal(*params.Tags)
+		if err != nil {
+			return "", nil, fmt.Errorf("marshal tags: %w", err)
+		}
+		sets = append(sets, "tags = ?")
+		args = append(args, tagsJSON)
+	}
+
+	if len(sets) == 0 {
+		return "", nil, ErrNoFieldsToUpdate
+	}
+
+	query := "UPDATE memories SET " + strings.Join(sets, ", ") +
+		", updated_at = datetime('now') WHERE id = ? RETURNING id, text, project, created_at"
+	args = append(args, params.ID)
+
+	return query, args, nil
 }

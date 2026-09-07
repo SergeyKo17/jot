@@ -32,6 +32,10 @@ func New(_ *slog.Logger, tools *tools.Tools) *Server {
 		Name:        "forget",
 		Description: "Delete a memory by ID. Use when a fact is outdated, wrong, or no longer relevant.",
 	}, tools.HandleForget)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "update",
+		Description: "Update a memory's text, project, or tags by ID. Pass only the fields to change — others stay unchanged.",
+	}, tools.HandleUpdate)
 
 	return &Server{mcp: srv}
 }
