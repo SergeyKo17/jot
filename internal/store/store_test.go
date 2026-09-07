@@ -419,3 +419,96 @@ func TestUpdate(t *testing.T) {
 		}
 	})
 }
+
+func TestSearchOR(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	seeds := []Memory{
+		{Text: "PostgreSQL uses JSONB for metadata", Project: "atlas"},
+		{Text: "NATS JetStream for async processing", Project: "atlas"},
+		{Text: "PostgreSQL and NATS are both used", Project: "atlas"},
+	}
+	for _, m := range seeds {
+		_, err := s.Save(ctx, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		name    string
+		text    string
+		wantMin int // минимум результатов
+		wantMax int
+	}{
+		{
+			name:    "single word matches one record",
+			text:    "JetStream",
+			wantMin: 1,
+			wantMax: 1,
+		},
+		{
+			name:    "multi word OR matches all containing any word",
+			text:    "PostgreSQL NATS",
+			wantMin: 3,
+			wantMax: 3,
+		},
+		{
+			name:    "no match returns empty",
+			text:    "Redis Kafka",
+			wantMin: 0,
+			wantMax: 0,
+		},
+		{
+			name:    "special characters in query",
+			text:    `"quoted" AND NOT *star*`,
+			wantMin: 0,
+			wantMax: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows, err := s.Search(ctx, SearchParams{Text: tt.text})
+			if err != nil {
+				t.Fatalf("Search(%q) error: %v", tt.text, err)
+			}
+			if len(rows) < tt.wantMin || len(rows) > tt.wantMax {
+				t.Errorf("Search(%q) returned %d rows, want [%d, %d]",
+					tt.text, len(rows), tt.wantMin, tt.wantMax)
+			}
+		})
+	}
+}
+
+func TestSearchORRanking(t *testing.T) {
+	s := testStore(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	seeds := []Memory{
+		{Text: "only PostgreSQL here", Project: "atlas"},
+		{Text: "PostgreSQL and NATS together", Project: "atlas"},
+	}
+	for _, m := range seeds {
+		_, err := s.Save(ctx, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := s.Search(ctx, SearchParams{Text: "PostgreSQL NATS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("Search returned %d rows, want at least 2", len(rows))
+	}
+	if rows[0].Text != "PostgreSQL and NATS together" {
+		t.Errorf("first result = %q, want record with both words", rows[0].Text)
+	}
+}

@@ -162,11 +162,13 @@ func (s *Store) Search(ctx context.Context, params SearchParams) (_ []MemoryRow,
 
 // createRecallQuery builds a FTS5 search query with optional WHERE clauses for project and tag.
 func createRecallQuery(params SearchParams) (string, []any) {
+	matchExpr := buildMatchExpr(params.Text)
+
 	query := `SELECT m.id, m.text, m.project, m.created_at
 	FROM memories_fts f
 	JOIN memories m ON m.rowid = f.rowid
 	WHERE f.text MATCH ?`
-	args := []any{params.Text}
+	args := []any{matchExpr}
 
 	if params.Project != "" {
 		query += " AND m.project = ?"
@@ -183,6 +185,15 @@ func createRecallQuery(params SearchParams) (string, []any) {
 	query += " ORDER BY f.rank LIMIT 10"
 
 	return query, args
+}
+
+func buildMatchExpr(text string) string {
+	words := strings.Fields(strings.TrimSpace(text))
+	for i, w := range words {
+		w = strings.ReplaceAll(w, `"`, `""`)
+		words[i] = `"` + w + `"`
+	}
+	return strings.Join(words, " OR ")
 }
 
 const deleteQuery = `
