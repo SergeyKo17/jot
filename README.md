@@ -104,4 +104,4 @@ Competitors expose 9-20 tools. jot covers the full CRUD cycle with the minimum s
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/SergeyKo17/jot/blob/dev/LICENSE)
